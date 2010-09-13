@@ -1,0 +1,6 @@
+libbyr - A python interfacing to access the BYR forum (bbs.byr.cn).
+
+BYR forum is a bulletin board system where students from Beijing University
+of Posts and Telecommunications read and post all kinds of messages.  This
+program is a Python library which allows users to programmatically manipu-
+late messages in the BYR forum.

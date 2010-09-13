@@ -1,16 +1,22 @@
 # coding: utf_8
 
-import os, sys, re, urllib2, httplib, string
+import os, sys, re, urllib2, httplib, string, urlparse
+
+PROXY_ADDR = os.environ.get('http_proxy',None)
 
 class Byr(object):
     FORUM_HOST = 'bbs.byr.cn'
     FORUM_ENCODING = 'gb18030'
+    if PROXY_ADDR is not None:
+        CONN_ADDR = urlparse.urlparse(PROXY_ADDR).netloc
+    else:
+        CONN_ADDR = FORUM_HOST
 
     def __init__(self):
         self._conn = None
 
     def connect(self):
-        self._conn = httplib.HTTPConnection(self.FORUM_HOST)
+        self._conn = httplib.HTTPConnection(self.CONN_ADDR)
 
     @property
     def conn(self):
@@ -22,9 +28,12 @@ class Byr(object):
             try:
                 self.conn.request("GET", url)
                 resp = self.conn.getresponse()
-                return resp.read().decode(self.FORUM_ENCODING)
+                # BYR forum does not always find the borders of multi-byte
+                # chars correctly.  So "replace" is needed.
+                # "ignore" also works.
+                return resp.read().decode(self.FORUM_ENCODING, "replace") 
             except httplib.HTTPException:
-                self.reconnect()
+                self.connect()
 
     def board(self, board_name):
         return Board(self, board_name)
@@ -35,25 +44,6 @@ class Byr(object):
 class PagedMixin(object):
     def page(self, page_num):
         return self._page_class()(self, page_num)
-
-class Board(PagedMixin, object):
-    def __init__(self, byr, board_name):
-        self.byr = byr
-        self.board_name = board_name
-
-    @staticmethod
-    def _page_class():
-        return BoardPage
-
-class Thread(PagedMixin, object):
-    def __init__(self, byr, board_name, thread_id):
-        self.byr = byr
-        self.board_name = board_name
-        self.thread_id = thread_id
-
-    @staticmethod
-    def _page_class():
-        return ThreadPage
 
     def xpages(self):
         first_page = self.page(1)
@@ -67,6 +57,37 @@ class Thread(PagedMixin, object):
 
     def pages(self):
         return list(self.xpages())
+
+class Board(PagedMixin, object):
+    def __init__(self, byr, board_name):
+        self.byr = byr
+        self.board_name = board_name
+
+    @staticmethod
+    def _page_class():
+        return BoardPage
+
+    def xthreads(self, limit_page = None):
+        cur_page = 0
+        for page in self.xpages():
+            for thread in page.threads():
+                yield thread
+            cur_page += 1
+            if limit_page != None and cur_page >= limit_page:
+                break
+
+    def threads(self, limit_page = None):
+        return list(self.xthreads(limit_page))
+
+class Thread(PagedMixin, object):
+    def __init__(self, byr, board_name, thread_id):
+        self.byr = byr
+        self.board_name = board_name
+        self.thread_id = thread_id
+
+    @staticmethod
+    def _page_class():
+        return ThreadPage
 
     def xposts(self):
         for page in self.xpages():
@@ -87,6 +108,9 @@ class Page(object):
             self.load()
         return self._html
 
+    def load(self):
+        self._html = self.byr.load_page(self.url)
+
     PAT_PAGE_NUM = re.compile(ur'<li class="page-normal"><a href="\?p=(?P<page_num>\d+)" title="[^"]+">\d+</a></li>')
     def max_page_num(self):
         lst = Page.PAT_PAGE_NUM.findall(self.html);
@@ -95,9 +119,6 @@ class Page(object):
             return 1
         else:
             return max(map(int,lst))
-
-    def load(self):
-        self._html = self.byr.load_page(self.url)
 
 class BoardPage(Page):
     def __init__(self, board, page_num):
@@ -112,6 +133,10 @@ class BoardPage(Page):
     PAT_THREAD_LINK = re.compile(ur'<td class="title_9"><a href="/article/\w+/(?P<thread_id>\d+)">')
     def thread_ids(self):
         return map(int, BoardPage.PAT_THREAD_LINK.findall(self.html))
+
+    def threads(self):
+        return [Thread(self.byr, self.board_name, tid)
+                for tid in self.thread_ids()]
 
 class ThreadPage(Page):
     def __init__(self, thread, page_num):
@@ -134,7 +159,7 @@ class ThreadPage(Page):
     def html_extract_blocks(html):
         return ThreadPage.PAT_BLOCK.findall(html)
 
-    PAT_DATE = re.compile(ur'\w+ \w+&nbsp;&nbsp;\d+ \d+:\d+:\d+ \d+')
+    #PAT_DATE = re.compile(ur'\w+ \w+&nbsp;&nbsp;\d+ \d+:\d+:\d+ \d+')
 
     @staticmethod
     def parse_date(date_string):
@@ -159,13 +184,13 @@ class ThreadPage(Page):
         return ThreadPage.PAT_BR.split(html)
 
     PAT_HEADER_LINES = map(re.compile, [
-        ur'发信人: (?P<username>\w+) \((?P<nickname>.+?)\), 信区: (?P<board>\w+)' ,
+        ur'发信人: (?P<username>\w+) \((?P<nickname>.*?)\), 信区: (?P<board>\w+)' ,
         ur'标  题: (?P<title>.+)',
-        ur'发信站: 北邮人论坛 \((?P<date>[A-Za-z0-9 :]+)\), 站内',
+        ur'发信站: (?P<send_site_name>.+?) \((?P<date>.+?)\), 站内',
         ])
     
-    PAT_FOOTER_LINE = re.compile(ur'※ 来源:·北邮人论坛 (http://)?bbs\.byr\.cn·\[FROM: (?P<source_ipaddr>[0-9.*]+)\]')
-    PAT_MODIFY_LINE = re.compile(ur'※ 修改:·byrmaster 于 (?P<modify_date>[A-Za-z0-9 :]+) 修改本文·\[FROM: (?P<modify_ipaddr>[0-9.*]+)\]')
+    PAT_FOOTER_LINE = re.compile(ur'※ 来源:·(?P<source_site_name>.+?) (?P<source_site_addr>.+?)·\[FROM: (?P<source_ipaddr>.+?)\]')
+    PAT_MODIFY_LINE = re.compile(ur'※ 修改:·byrmaster 于 (?P<modify_date>.+?) 修改本文·\[FROM: (?P<modify_ipaddr>.+?)\]')
 
     @staticmethod
     def block_unhtml(block):
@@ -179,12 +204,21 @@ class ThreadPage(Page):
         result_dict = {}
         result_dict[u'content'] = u'\n'.join(lines[4:-1])
 
-        for pat, line in zip(ThreadPage.PAT_HEADER_LINES,lines) + [(ThreadPage.PAT_FOOTER_LINE, lines[-1])]:
-            result_dict.update(pat.match(line).groupdict())
+        for pat, line in zip(ThreadPage.PAT_HEADER_LINES,lines):
+            try:
+                result_dict.update(pat.match(line).groupdict())
+            except AttributeError, e:
+                raise RegexpMismatchError(line, pat)
 
-        m_lb1 = ThreadPage.PAT_MODIFY_LINE.match(lines[-2])
-        if m_lb1 is not None:
-            result_dict.update(m_lb1.groupdict())
+        # Both footers may fail to exist.
+        for pat, line in [
+                (ThreadPage.PAT_FOOTER_LINE, lines[-1]),
+                (ThreadPage.PAT_MODIFY_LINE, lines[-2]),
+                (ThreadPage.PAT_MODIFY_LINE, lines[-1]),
+                ]:
+            m = pat.match(line)
+            if m is not None:
+                result_dict.update(m.groupdict())
 
         return result_dict
 
@@ -194,51 +228,9 @@ class ThreadPage(Page):
 
     def posts(self):
         return ThreadPage.html_extract_posts(self.html)
-    
 
-class Blah(Page):
-    @staticmethod
-    def thread_page_get_posts(thread_html):
-        pat = re.compile(
-                ur'<td class="posts_content_right no_bottom no_top"><p>'
-                ur'发信人: (?P<username>\w+) \((?P<nickname>.+?)\), '
-                ur'信区: (?P<board>\w+) <br /> '
-                ur'标&nbsp;&nbsp;题: (?P<title>.+?) '
-                ur'<br /> '
-                ur'发信站: 北邮人论坛 '
-                ur'\((?P<date>.+?)\)'
-                ur', '
-                ur'站内 <br />'
-                ur'&nbsp;&nbsp;<br /> '
-                ur'(?P<content>.+?)'
-                ur'<font class="f\d+"></font><font class="f\d+">'
-                ur'※ 来源:·北邮人论坛 (<a target="_blank" href="http://bbs.byr.cn">http://)?bbs\.byr\.cn(</a>)?·'
-                ur'\[FROM: (?P<source_ipaddr>[0-9.*]+)\]'
-                ur'</font>'
-                ur'<font class="f000"> <br /> </font></p></td>'
-                )
-        
-        for m in pat.finditer(thread_html):
-            d = m.groupdict()
-            yield d
-
-
-
-    def test_match_all(self, board_name, thread_id):
-        mp = self.get_max_page_num(board_name)
-        for i,page in enumerate(self.fetch_whole_thread(board_name, thread_id)):
-            pn = i+1
-            if pn < mp:
-                posts = self.thread_page_get_posts(page)
-                sz = len(posts)
-                if sz<10:
-                    print "wrong number: board_name=%(board_name)s thread_id=%(thread_id)s page=%(pn)s"%locals()
-
-    @staticmethod
-    def escape_content(content):
-        tag_pat = re.compile(ur'<.+?>')
-        content = content.replace(u"<br />",u"\n").replace(u'&nbsp;',u' ')
-        content = tag_pat.sub('',content)
-
-        return content
+class RegexpMismatchError(Exception):
+    def __init__(self, line, regex):
+        self.line = line
+        self.regex = regex
 

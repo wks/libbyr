@@ -47,14 +47,28 @@ class TestByrOnline(unittest.TestCase):
 
     def test_whole_thread_post_fetch(self):
         thread = self.byr.thread('Linux', 100862)
-        max_page_num = thread.page(0).max_page_num()
         posts = thread.posts()
-        self.assertEqual(len(posts), 14) # currently (2010-09-11 00:14)
+        #self.assertEqual(len(posts), 14) # currently (2010-09-11 00:14)
         for i,username in enumerate([
             "sysusky", "hzmangel", "sysusky", "wks", "sysusky",
             "yyg747", "kemp86", "byrmaster", "sutar", "sysusky",
             "sysusky", "byrmaster", "sysusky", "byrmaster", ]):
             self.assertEqual(posts[i]['username'], username)
+
+    def test_whole_thread_post_fetch_with_coding_error(self):
+        thread = self.byr.thread('ACM_ICPC', 11777)
+        posts = thread.posts()
+        # error may raise
+
+    def test_thread_with_non_existing_footers(self):
+        thread = self.byr.thread('Linux', 96787)
+        posts = thread.posts()
+        # error may raise
+
+    def test_thread_with_irregular_header(self):
+        thread = self.byr.thread('Linux', 54779)
+        posts = thread.posts()
+        # error may raise
 
 if __name__ == '__main__':
     unittest.main()
