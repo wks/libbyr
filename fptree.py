@@ -20,7 +20,6 @@ class FPTree(object):
 
         freq = {}
 
-
         for tid, items in trans_set:
             for item in set(items):
                 freq[item] = freq.get(item,0)+1
