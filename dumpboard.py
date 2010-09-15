@@ -17,47 +17,59 @@ Parameters:
     -h, --help:         Show this help message.
 """
 
-try:
-    optlist, args = getopt.getopt(sys.argv[1:], "b:l:o:h", [
-        "board-name", "limit-pages", "output", "help"])
-except getopt.GetoptError, err:
-    print str(err)
-    print USAGE
-    sys.exit(2)
-
-board_name = "Linux"
-limit_pages = None
-output_file_name = "threads.pickle"
-
-for o,a in optlist:
-    if o in ['-b', '--board-name']:
-        board_name = a
-    elif o in ["-l", "--limit-pages"]:
-        limit_pages = int(a)
-    elif o in ["-o", "--output"]:
-        output_file_name = a
-    elif o in ["-h", "--help"]:
+def main():
+    try:
+        optlist, args = getopt.getopt(sys.argv[1:], "b:l:o:h", [
+            "board-name", "limit-pages", "output", "help"])
+    except getopt.GetoptError, err:
+        print str(err)
         print USAGE
-        sys.exit()
+        sys.exit(2)
 
-byr = byr3.Byr()
+    board_name = "Linux"
+    limit_pages = None
+    output_file_name = "threads.pickle"
 
-board = byr.board(board_name)
+    for o,a in optlist:
+        if o in ['-b', '--board-name']:
+            board_name = a
+        elif o in ["-l", "--limit-pages"]:
+            limit_pages = int(a)
+        elif o in ["-o", "--output"]:
+            output_file_name = a
+        elif o in ["-h", "--help"]:
+            print USAGE
+            sys.exit()
 
-print "loading threads..."
-threads = board.threads(limit_pages)
-print "threads loaded!  %d threads to go." % len(threads)
+    byr = byr3.Byr()
 
-with open(output_file_name,"w") as f:
-    for i,thread in enumerate(threads):
+    board = byr.board(board_name)
+
+    print "loading threads..."
+    threads = board.threads(limit_pages)
+    print "threads loaded!  %d threads to go." % len(threads)
+
+    with open(output_file_name,"w") as f:
+        for i,thread in enumerate(threads):
+            try:
+                print "Loading thread num:%d, id=%s...." % (i,thread.thread_id)
+                posts = thread.posts()
+                print "thread id=%s loaded!" % thread.thread_id
+                print "pickling..."
+                item = (thread.thread_id,posts)
+                pickle.dump(item, f, 2)
+                print "pickled..."
+            except byr3.RegexpMismatchError, e:
+                print "Error loading thread id=%s"%thread.thread_id
+
+def load_pickle(f):
+    if isinstance(f,str) or isinstance(f,unicode):
+        f = open(f)
+    while True:
         try:
-            print "Loading thread num:%d, id=%s...." % (i,thread.thread_id)
-            posts = thread.posts()
-            print "thread id=%s loaded!" % thread.thread_id
-            print "pickling..."
-            item = (thread.thread_id,posts)
-            pickle.dump(item, f, 2)
-            print "pickled..."
-        except byr3.RegexpMismatchError, e:
-            print "Error loading thread id=%s"%thread.thread_id
+            yield pickle.load(f)
+        except EOFError:
+            break
 
+if __name__=='__main__':
+    main()

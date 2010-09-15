@@ -12,6 +12,9 @@ def apriori(trans_set, min_sup):
 
     freq_items = dict((k,v) for k,v in freq.items() if v >= min_sup)
 
+    simple_trans_set = [(tid,set(i for i in items if i in freq_items))
+            for tid,items in trans_set]
+
     cur_freq_item_sets = dict(((i,), f) for (i,f) in freq_items.iteritems())
     result_dict[1] = cur_freq_item_sets
 
@@ -30,7 +33,7 @@ def apriori(trans_set, min_sup):
 
         item_set_freqs = dict((itemset,0) for itemset in pruned_itemsets)
 
-        for tid,items in trans_set:
+        for tid,items in simple_trans_set:
             for itemset in pruned_itemsets:
                 if all(item in items for item in itemset):
                     item_set_freqs[itemset]+=1
