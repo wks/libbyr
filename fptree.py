@@ -1,7 +1,7 @@
 # coding: utf_8
 
 class FPTree(object):
-    def __init__(self, weighted_trans_set, min_sup):
+    def __init__(self, min_sup):
         """ Build a FPTree with a given transaction set.
 
             weighted_trans_set :: [([item, ...], weight), ...]
@@ -19,24 +19,35 @@ class FPTree(object):
         self.min_sup = min_sup
         self.header_table = {}
         self.root = FPNode(None, None)
+        self.item_sup = {}
 
-        freq = {}
+    @staticmethod
+    def new_by_named_trans_set(named_trans_set, min_sup):
+        weighted_trans_set = [(items, 1) for tid,items in named_trans_set]
+        return FPTree.new_by_weighted_trans_set(weighted_trans_set, min_sup)
+
+    @staticmethod
+    def new_by_weighted_trans_set(weighted_trans_set, min_sup):
+        self = FPTree(min_sup)
 
         for items, weight in weighted_trans_set:
             for item in set(items):
-                freq[item] = freq.get(item,0)+weight
+                self.item_sup[item] = self.item_sup.get(item,0)+weight
 
-        freq_rev_list = sorted([(i,f) for (i,f) in freq.items() if f >= min_sup],
+        freq_rev_list = sorted(
+                [(i,f) for (i,f) in self.item_sup.items() if f >= min_sup],
                 key=lambda(i,f):f, reverse=True)
 
         freq_rev_order = dict((i,o) for (o,(i,f)) in enumerate(freq_rev_list))
         self.freq_rev_order = freq_rev_order
 
         for items, weight in weighted_trans_set:
-            cur_freq_items = sorted([i for i in items if i in freq_rev_order],
+            cur_freq_items = sorted([i for i in set(items) if i in freq_rev_order],
                     key = lambda i:freq_rev_order[i])
 
             self.insert_tree(cur_freq_items, weight)
+
+        return self
 
     def is_empty(self):
         return len(self.root.children)==0
@@ -58,7 +69,7 @@ class FPTree(object):
     def _fp_growth(self, suffix):
         for item in self.header_table:
             new_suffix = (item,)+suffix
-            yield new_suffix
+            yield (new_suffix, self.item_sup[item])
             cond_tree = self._get_conditional_tree(item)
             if not cond_tree.is_empty():
                 for freq_pat in cond_tree._fp_growth(new_suffix):
@@ -74,7 +85,7 @@ class FPTree(object):
                 cur_node = cur_node.parent
             cond_db.append((path, node.count))
 
-        return FPTree(cond_db, self.min_sup)
+        return FPTree.new_by_weighted_trans_set(cond_db, self.min_sup)
 
 
 class FPNode(object):
@@ -83,6 +94,20 @@ class FPNode(object):
         self.count = 0
         self.children = {}
         self.parent = parent
+
+def analyze_trans_set(named_trans_set, min_sup):
+    fpt = FPTree.new_by_named_trans_set(named_trans_set, min_sup)
+    for freq_pat in fpt.get_frequent_patterns():
+        yield freq_pat
+
+def analyze_trans_set_group_by_size(named_trans_set, min_sup):
+    group_dict = {}
+
+    for itemset, sup_count in analyze_trans_set(named_trans_set, min_sup):
+        count_dict = group_dict.setdefault(len(itemset),{})
+        count_dict[itemset] = sup_count
+
+    return group_dict
 
 def print_fp_tree(fptree):
     def print_node(node, head_prefix, children_prefix):
@@ -104,9 +129,7 @@ if __name__=='__main__':
             (500, ['a','f','c','e','l','p','m','n']),
             ]
 
-    weighted_trans_set = [(items, 1) for tid,items in small_trans]
-
-    fpt = FPTree(weighted_trans_set, 3)
+    fpt = FPTree.new_by_named_trans_set(small_trans, 3)
 
     print "FPTree:"
     print_fp_tree(fpt)

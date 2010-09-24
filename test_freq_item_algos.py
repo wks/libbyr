@@ -3,6 +3,7 @@
 import unittest
 
 import apriori
+import fptree
 
 small_trans = [
     (100, [1,2,5]),
@@ -28,7 +29,15 @@ expected_result = {
         }
 
 class TestFreqPatternAlgorithms(unittest.TestCase):
+    def normalize_result_dict(self, result_dict):
+        ndict = {}
+        for count in result_dict:
+            ndict[count] = {}
+            for itemset, sup_count in result_dict[count].iteritems():
+                ndict[count][tuple(sorted(itemset))] = sup_count
+        return ndict
     def assert_small_trans_result(self, result_dict):
+        result_dict = self.normalize_result_dict(result_dict)
         for item_set_size, item_set_results in expected_result.iteritems():
             self.assertEqual(
                     len(item_set_results), 
@@ -44,6 +53,10 @@ class TestFreqPatternAlgorithms(unittest.TestCase):
 
     def test_apriori(self):
         result_dict = apriori.apriori(small_trans, min_sup)
+        self.assert_small_trans_result(result_dict)
+
+    def test_fpgrowth(self):
+        result_dict = fptree.analyze_trans_set_group_by_size(small_trans, min_sup)
         self.assert_small_trans_result(result_dict)
 
 if __name__ == '__main__':
